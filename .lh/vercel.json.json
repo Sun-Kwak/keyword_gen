@@ -1,0 +1,34 @@
+{
+    "sourceFile": "vercel.json",
+    "activeCommit": 0,
+    "commits": [
+        {
+            "activePatchIndex": 4,
+            "patches": [
+                {
+                    "date": 1779177961668,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n"
+                },
+                {
+                    "date": 1779178259843,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,7 +1,6 @@\n {\n   \"buildCommand\": \"pip install -r requirements.txt\",\n-  \"runtime\": \"python@3.13\",\n   \"rewrites\": [\n-    { \"source\": \"/(.*)\", \"destination\": \"/server.py\" }\n+    { \"source\": \"/(.*)\", \"destination\": \"/api/server.py\" }\n   ]\n }\n"
+                },
+                {
+                    "date": 1779178270429,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,6 +1,3 @@\n {\n-  \"buildCommand\": \"pip install -r requirements.txt\",\n-  \"rewrites\": [\n-    { \"source\": \"/(.*)\", \"destination\": \"/api/server.py\" }\n-  ]\n+  \"buildCommand\": \"pip install -r requirements.txt\"\n }\n"
+                },
+                {
+                    "date": 1779178287729,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -0,0 +1,1 @@\n+{}\n"
+                },
+                {
+                    "date": 1779178818470,
+                    "content": "Index: \n===================================================================\n--- \n+++ \n@@ -1,4 +1,9 @@\n-{}\n {\n-  \"buildCommand\": \"pip install -r requirements.txt\"\n+  \"buildCommand\": \"pip install -r requirements.txt\",\n+  \"functions\": {\n+    \"api/index.py\": {\n+      \"memory\": 3008,\n+      \"maxDuration\": 60\n+    }\n+  }\n }\n"
+                }
+            ],
+            "date": 1779177961668,
+            "name": "Commit-0",
+            "content": "{\n  \"buildCommand\": \"pip install -r requirements.txt\",\n  \"runtime\": \"python@3.13\",\n  \"rewrites\": [\n    { \"source\": \"/(.*)\", \"destination\": \"/server.py\" }\n  ]\n}\n"
+        }
+    ]
+}

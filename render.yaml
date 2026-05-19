@@ -1,8 +1,9 @@
 services:
   - type: web
     name: keyword-gen
-    runtime: python39
-    startCommand: uvicorn server:app --host 0.0.0.0 --port 8080
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python -m uvicorn server:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: OPENAI_API_KEY
-        scope: run
+        sync: false

@@ -16,7 +16,15 @@ load_dotenv()
 from ddgs import DDGS
 from openai import OpenAI
 
-_openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def _get_openai_client():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        return OpenAI(api_key=api_key)
+    except Exception:
+        return None
 
 TRANSACTIONAL_TERMS = {
     "예약", "가격", "후기", "할인", "어플", "앱", "샵", "매장", "구매", "판매",
@@ -71,6 +79,9 @@ def _search_texts(seed: str, ddgs: DDGS) -> str:
 
 def _extract_with_llm(seed_keywords: list[str], texts_by_seed: dict[str, str], max_count: int) -> list[str]:
     """OpenAI에게 검색 결과에서 후보 키워드 추출 요청"""
+    client = _get_openai_client()
+    if client is None:
+        return list(seed_keywords)
 
     # 검색 텍스트를 시드별로 정리
     context_parts = []
@@ -102,7 +113,7 @@ def _extract_with_llm(seed_keywords: list[str], texts_by_seed: dict[str, str], m
 JSON 배열 형식으로만 답변하세요. 예: ["키워드1", "키워드2", ...]"""
 
     try:
-        response = _openai_client.chat.completions.create(
+        response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "당신은 SEO 및 키워드 분석 전문가입니다. 요청된 형식으로 정확히 답변합니다."},

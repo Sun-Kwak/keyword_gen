@@ -15,7 +15,15 @@ from openai import OpenAI
 
 load_dotenv()
 
-_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def _get_openai_client():
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        return None
+    try:
+        return OpenAI(api_key=api_key)
+    except Exception:
+        return None
 
 
 def _safe_float(value: object, default: float = 5.0) -> float:
@@ -69,6 +77,10 @@ def _fallback_generate(scored_keywords: List[Dict], limit: int = 12) -> List[Dic
 
 
 def _llm_generate(scored_keywords: List[Dict], limit: int = 12) -> List[Dict]:
+    client = _get_openai_client()
+    if client is None:
+        return []
+
     top = scored_keywords[:12]
     if not top:
         return []
@@ -104,7 +116,7 @@ def _llm_generate(scored_keywords: List[Dict], limit: int = 12) -> List[Dict]:
         "[{\"new_keyword\":\"...\",\"source_keywords\":[\"...\",\"...\"],\"novelty\":7.2,\"relevance\":8.1,\"rationale\":\"...\"}]"
     )
 
-    response = _client.chat.completions.create(
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": "당신은 키워드 전략가다. 반드시 JSON만 출력한다."},

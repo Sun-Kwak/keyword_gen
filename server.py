@@ -17,6 +17,7 @@ from web_searcher import search_keyword_data
 from trend_scorer import score_all_keywords
 from keyword_generator import generate_new_keywords
 from candidate_generator import generate_candidates
+from naver_datalab import compare_keywords
 
 app = FastAPI(title="키워드 트렌드 분석기")
 
@@ -122,6 +123,18 @@ async def analyze(keywords: str):
     )
 
 
+@app.get("/compare")
+async def compare(keywords: str):
+    """GET /compare?keywords=도수치료,릴렉싱,테라피"""
+    import asyncio
+    kw_list = [k.strip() for k in keywords.split(",") if k.strip()][:5]
+    if not kw_list:
+        return {"error": "키워드를 입력하세요"}
+    loop = asyncio.get_event_loop()
+    results = await loop.run_in_executor(None, compare_keywords, kw_list)
+    return {"results": results}
+
+
 @app.get("/", response_class=HTMLResponse)
 async def index():
     return HTML_PAGE
@@ -134,6 +147,7 @@ HTML_PAGE = """<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>키워드 트렌드 분석기</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   :root {
     --bg: #0f1117;
@@ -199,6 +213,30 @@ HTML_PAGE = """<!DOCTYPE html>
   #status-text { font-size: .85rem; color: var(--muted); margin-top: 8px; min-height: 1.2em; }
 
   /* ── 탭 ── */
+  .mode-tabs {
+    max-width: 1400px;
+    margin: 14px auto 0;
+    padding: 0 32px;
+    display: flex;
+    gap: 8px;
+  }
+  .mode-btn {
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,.02);
+    color: #94a3b8;
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-size: .85rem;
+    font-weight: 700;
+  }
+  .mode-btn.active {
+    color: #fff;
+    background: linear-gradient(120deg, #2b4e89, #5a4cb3);
+    border-color: transparent;
+  }
+  .view-pane { display: none; }
+  .view-pane.active { display: block; }
+
   #main { padding: 20px 32px 40px; max-width: 1400px; margin: 0 auto; }
   .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 16px; flex-wrap: wrap; }
   .tab-btn {
@@ -296,6 +334,265 @@ HTML_PAGE = """<!DOCTYPE html>
     border-radius: 20px; padding: 6px 14px; font-size: .88rem;
   }
   .medal { margin-right: 4px; }
+
+  /* ── 검색어 비교 탭 ── */
+  .cmp-controls {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 20px;
+    align-items: center;
+    flex-wrap: wrap;
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    padding: 14px 16px;
+    margin-left: -16px;
+    margin-right: -16px;
+    background: linear-gradient(180deg, rgba(10,13,29,.96), rgba(10,13,29,.88));
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    border-bottom: 1px solid rgba(45,48,87,.72);
+    box-shadow: 0 12px 28px rgba(0,0,0,.18);
+  }
+  .cmp-controls .cmp-radio-group { margin-left: auto; }
+  #compare-page { padding: 20px 32px 40px; max-width: 1400px; margin: 0 auto; }
+  #cmp-input {
+    flex: 1; min-width: 240px;
+    background: var(--panel);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text); font-size: 1rem; padding: 12px 16px;
+    outline: none; transition: border-color .2s;
+  }
+  #cmp-input:focus { border-color: var(--accent2); }
+  #cmp-input::placeholder { color: var(--muted); }
+  #cmp-btn { background: var(--accent2); color: #fff; }
+  #cmp-status { padding: 8px 0; font-size: .9rem; min-height: 1.4em; }
+  .cmp-trend-wrap {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 20px; margin-bottom: 24px;
+  }
+  .cmp-trend-wrap h3 { font-size: .95rem; color: var(--muted); margin-bottom: 14px; }
+  .cmp-metrics-grid { display: grid; grid-template-columns: 1fr; gap: 18px; }
+  @media (min-width: 980px) { .cmp-metrics-grid { grid-template-columns: 1fr 1fr; } }
+  .cmp-metric-card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px;
+    min-height: 320px;
+  }
+  .cmp-metric-card h4 { font-size: .95rem; margin-bottom: 10px; color: var(--muted); }
+  .cmp-metric-full { grid-column: 1 / -1; min-height: 360px; }
+  .cmp-age-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .cmp-radio-group { display: flex; gap: 10px; flex-wrap: wrap; }
+  .cmp-radio {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    color: #a8b4d8;
+    font-size: .82rem;
+  }
+  .cmp-radio input { accent-color: var(--accent2); }
+  .cmp-age-range-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 280px;
+  }
+  .cmp-age-range-meta {
+    display: flex;
+    justify-content: space-between;
+    font-size: .78rem;
+    color: #cbd5e1;
+  }
+  .cmp-age-range-slider {
+    position: relative;
+    height: 26px;
+    --from: 0%;
+    --to: 100%;
+  }
+  .cmp-age-range-slider::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 11px;
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(
+      to right,
+      rgba(71,85,105,.6) 0%,
+      rgba(71,85,105,.6) var(--from),
+      rgba(124,91,247,.9) var(--from),
+      rgba(124,91,247,.9) var(--to),
+      rgba(71,85,105,.6) var(--to),
+      rgba(71,85,105,.6) 100%
+    );
+  }
+  .cmp-age-range-slider input[type="range"] {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 26px;
+    margin: 0;
+    background: transparent;
+    -webkit-appearance: none;
+    appearance: none;
+    pointer-events: none;
+  }
+  .cmp-age-range-slider input[type="range"]::-webkit-slider-runnable-track {
+    height: 4px;
+    background: transparent;
+  }
+  .cmp-age-range-slider input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #7c5bf7;
+    margin-top: -5px;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .cmp-age-range-slider input[type="range"]::-moz-range-track {
+    height: 4px;
+    background: transparent;
+  }
+  .cmp-age-range-slider input[type="range"]::-moz-range-thumb {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid #7c5bf7;
+    pointer-events: auto;
+    cursor: pointer;
+  }
+  .cmp-age-range-text {
+    font-size: .8rem;
+    color: #a78bfa;
+    font-weight: 700;
+  }
+  .cmp-opportunity {
+    margin-top: 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .cmp-opportunity h4 {
+    color: var(--muted);
+    font-size: .94rem;
+    margin-bottom: 10px;
+  }
+  .cmp-opportunity table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+  .cmp-opportunity th, .cmp-opportunity td {
+    padding: 9px 10px;
+    border-bottom: 1px solid rgba(45,48,87,.55);
+    text-align: left;
+    white-space: nowrap;
+  }
+  .cmp-opportunity tr:last-child td { border-bottom: none; }
+  .opp-score-high { color: var(--green); font-weight: 700; }
+  .opp-score-mid { color: var(--yellow); font-weight: 600; }
+  .opp-score-low { color: #94a3b8; }
+  .opp-chip {
+    display: inline-block;
+    font-size: .74rem;
+    border-radius: 999px;
+    padding: 2px 8px;
+    border: 1px solid transparent;
+  }
+  .opp-chip.high { color: #86efac; border-color: rgba(34,197,94,.45); background: rgba(34,197,94,.12); }
+  .opp-chip.mid { color: #fde68a; border-color: rgba(234,179,8,.45); background: rgba(234,179,8,.12); }
+  .opp-chip.low { color: #cbd5e1; border-color: rgba(148,163,184,.35); background: rgba(148,163,184,.1); }
+  .cmp-growth-card {
+    margin-top: 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .cmp-growth-card h4 {
+    color: var(--muted);
+    font-size: .94rem;
+    margin-bottom: 10px;
+  }
+  .cmp-positioning-card {
+    margin-top: 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .cmp-positioning-card h4 {
+    color: var(--muted);
+    font-size: .94rem;
+    margin-bottom: 10px;
+  }
+  .cmp-cluster-card {
+    margin-top: 18px;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+  }
+  .cmp-cluster-card h4 {
+    color: var(--muted);
+    font-size: .94rem;
+    margin-bottom: 10px;
+  }
+  .cmp-cluster-list {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  @media (min-width: 980px) {
+    .cmp-cluster-list { grid-template-columns: 1fr 1fr; }
+  }
+  .cmp-cluster-item {
+    border: 1px solid rgba(79,142,247,.28);
+    background: rgba(79,142,247,.08);
+    border-radius: 10px;
+    padding: 12px;
+  }
+  .cmp-cluster-title {
+    font-size: .88rem;
+    color: #c7d2fe;
+    font-weight: 700;
+    margin-bottom: 8px;
+  }
+  .cmp-cluster-kws {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 8px;
+  }
+  .cmp-kw-chip {
+    display: inline-block;
+    font-size: .76rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    color: #dbeafe;
+    background: rgba(30,64,175,.35);
+    border: 1px solid rgba(96,165,250,.35);
+  }
+  .cmp-cluster-strategy {
+    font-size: .8rem;
+    color: #93c5fd;
+    line-height: 1.45;
+  }
 </style>
 </head>
 <body>
@@ -317,39 +614,45 @@ HTML_PAGE = """<!DOCTYPE html>
   <h1>키워드 트렌드 분석기</h1>
 </header>
 
-<section id="input-section">
-  <div class="input-row">
-    <input id="kw-input" type="text"
-      placeholder="분석할 키워드 입력 (쉼표 또는 공백 구분 — 예: 패시브 스트레칭, 소매틱 운동, slow fitness)"
-      onkeydown="if(event.key==='Enter') startAnalysis()">
-    <button id="run-btn" onclick="startAnalysis()">▶ 분석 시작</button>
-    <button id="stop-btn" onclick="stopAnalysis()" disabled>■ 중지</button>
-  </div>
+<section class="mode-tabs">
+  <button class="mode-btn active" onclick="switchMainView('analysis', this)">키워드트렌드분석</button>
+  <button class="mode-btn" onclick="switchMainView('compare', this)">키워드비교</button>
 </section>
 
-<section id="candidates-section">
-  <div class="label">📋 분석 대상 후보 키워드</div>
-  <div id="candidates-wrap"></div>
-</section>
+<div id="view-analysis" class="view-pane active">
+  <section id="input-section">
+    <div class="input-row">
+      <input id="kw-input" type="text"
+        placeholder="분석할 키워드 입력 (쉼표 또는 공백 구분 — 예: 패시브 스트레칭, 소매틱 운동, slow fitness)"
+        onkeydown="if(event.key==='Enter') startAnalysis()">
+      <button id="run-btn" onclick="startAnalysis()">▶ 분석 시작</button>
+      <button id="stop-btn" onclick="stopAnalysis()" disabled>■ 중지</button>
+    </div>
+  </section>
 
-<section id="progress-section">
-  <div id="progress-wrap"><div id="progress-bar"></div></div>
-  <div id="status-text">키워드를 입력하고 분석 시작을 누르세요</div>
-</section>
+  <section id="candidates-section">
+    <div class="label">📋 분석 대상 후보 키워드</div>
+    <div id="candidates-wrap"></div>
+  </section>
 
-<div id="main">
-  <div id="summary-banner">
-    <h3>🏆 분석 완료</h3>
-    <div class="top-kw-list" id="top-kw-list"></div>
-  </div>
+  <section id="progress-section">
+    <div id="progress-wrap"><div id="progress-bar"></div></div>
+    <div id="status-text">키워드를 입력하고 분석 시작을 누르세요</div>
+  </section>
 
-  <div class="tabs">
-    <button class="tab-btn active" onclick="switchTab('log')">📋 진행 로그</button>
-    <button class="tab-btn" onclick="switchTab('search')">🔍 검색 현황</button>
-    <button class="tab-btn" onclick="switchTab('score')">⭐ 점수 분석</button>
-    <button class="tab-btn" onclick="switchTab('suggest')">💡 키워드 제안</button>
-    <button class="tab-btn" onclick="switchTab('legend')">📐 점수 기준</button>
-  </div>
+  <div id="main">
+    <div id="summary-banner">
+      <h3>🏆 분석 완료</h3>
+      <div class="top-kw-list" id="top-kw-list"></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('log', this)">📋 진행 로그</button>
+      <button class="tab-btn" onclick="switchTab('search', this)">🔍 검색 현황</button>
+      <button class="tab-btn" onclick="switchTab('score', this)">⭐ 점수 분석</button>
+      <button class="tab-btn" onclick="switchTab('suggest', this)">💡 키워드 제안</button>
+      <button class="tab-btn" onclick="switchTab('legend', this)">📐 점수 기준</button>
+    </div>
 
   <!-- 진행 로그 -->
   <div id="tab-log" class="tab-pane active">
@@ -461,6 +764,84 @@ HTML_PAGE = """<!DOCTYPE html>
       </div>
     </div>
   </div>
+
+  </div>
+</div>
+
+<div id="view-compare" class="view-pane">
+  <div id="compare-page">
+    <div class="cmp-controls">
+      <input id="cmp-input" type="text"
+        placeholder="키워드 입력 (쉼표 구분, 최대 5개 — 예: 도수치료, 릴렉싱, 테라피)"
+        onkeydown="if(event.key==='Enter') startCompare()">
+      <button id="cmp-btn" onclick="startCompare()">📊 비교 분석</button>
+      <div class="cmp-radio-group" id="cmp-global-gender-group">
+        <label class="cmp-radio"><input type="radio" name="cmp-global-gender" value="all" checked onchange="onCompareGenderChange()">전체</label>
+        <label class="cmp-radio"><input type="radio" name="cmp-global-gender" value="male" onchange="onCompareGenderChange()">남성</label>
+        <label class="cmp-radio"><input type="radio" name="cmp-global-gender" value="female" onchange="onCompareGenderChange()">여성</label>
+      </div>
+      <div class="cmp-age-range-wrap">
+        <div class="cmp-age-range-meta">
+          <span>최소: <strong id="cmp-age-min-value">10대</strong></span>
+          <span>최대: <strong id="cmp-age-max-value">60대+</strong></span>
+        </div>
+        <div class="cmp-age-range-slider" id="cmp-age-range-slider">
+          <input id="cmp-age-min" type="range" min="0" max="5" step="1" value="0" oninput="onAgeRangeInput('min', this.value)">
+          <input id="cmp-age-max" type="range" min="0" max="5" step="1" value="5" oninput="onAgeRangeInput('max', this.value)">
+        </div>
+        <div class="cmp-age-range-text" id="cmp-age-range-text">10대 ~ 60대+</div>
+      </div>
+    </div>
+    <div id="cmp-status"></div>
+    <div id="cmp-trend-section" class="cmp-trend-wrap" style="display:none">
+      <h3>📈 월별 검색량 트렌드 (상대 수치 0~100)</h3>
+      <canvas id="chart-trend" height="80"></canvas>
+    </div>
+    <div id="cmp-metrics" class="cmp-metrics-grid" style="display:none">
+      <div class="cmp-metric-card">
+        <h4>👫 성별 비교 (키워드별)</h4>
+        <canvas id="chart-gender-all" height="220"></canvas>
+      </div>
+      <div class="cmp-metric-card cmp-metric-full">
+        <div class="cmp-age-toolbar">
+          <h4>👥 연령대 비교 (키워드별)</h4>
+          <div style="font-size:.8rem; color:#94a3b8">상단 연령 필터는 무시됨</div>
+        </div>
+        <canvas id="chart-age-all" height="120"></canvas>
+      </div>
+    </div>
+    <div id="cmp-opportunity" class="cmp-opportunity" style="display:none">
+      <h4>🚀 기회 점수 우선순위</h4>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>키워드</th>
+              <th>기회 점수</th>
+              <th>성장성</th>
+              <th>현재 관심도</th>
+              <th>타겟 확장성</th>
+              <th>추천</th>
+            </tr>
+          </thead>
+          <tbody id="cmp-opportunity-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+    <div id="cmp-growth" class="cmp-growth-card" style="display:none">
+      <h4>📈 성장률 비교 (1개월 / 3개월 / 6개월)</h4>
+      <canvas id="chart-growth-rates" height="90"></canvas>
+    </div>
+    <div id="cmp-positioning" class="cmp-positioning-card" style="display:none">
+      <h4>🧭 포지셔닝 맵 (관심도 vs 경쟁강도 추정)</h4>
+      <canvas id="chart-positioning" height="100"></canvas>
+    </div>
+    <div id="cmp-clusters" class="cmp-cluster-card" style="display:none">
+      <h4>🧩 콘텐츠 주제 클러스터</h4>
+      <div id="cmp-cluster-list" class="cmp-cluster-list"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -497,11 +878,18 @@ function logout() {
 let evtSource = null;
 let searchIdx = 0, scoreIdx = 0, suggestIdx = 0;
 
-function switchTab(name) {
+function switchMainView(mode, btnEl) {
+  document.querySelectorAll('.view-pane').forEach(p => p.classList.remove('active'));
+  document.getElementById('view-' + mode).classList.add('active');
+  document.querySelectorAll('.mode-btn').forEach(b => b.classList.remove('active'));
+  if (btnEl) btnEl.classList.add('active');
+}
+
+function switchTab(name, btnEl) {
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
   document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + name).classList.add('active');
-  event.target.classList.add('active');
+  if (btnEl) btnEl.classList.add('active');
 }
 
 function setProgress(pct, status) {
@@ -654,6 +1042,605 @@ function stopAnalysis() {
   addLog('<span style="color:var(--red)">⛔ 분석이 중단되었습니다.</span>');
   document.getElementById('run-btn').disabled = false;
   document.getElementById('stop-btn').disabled = true;
+}
+
+// ── 검색어 비교 ────────────────────────────────────────
+let cmpCharts = [];
+const CMP_COLORS = ['#4f8ef7','#f7924f','#22c55e','#a855f7','#f43f5e'];
+const AGE_LABELS = ['10대', '20대', '30대', '40대', '50대', '60대+'];
+let cmpLastResults = [];
+let cmpAgeChart = null;
+let cmpAgeRangeMin = 0;
+let cmpAgeRangeMax = AGE_LABELS.length - 1;
+
+function ageRangeText(minIdx, maxIdx) {
+  return `${AGE_LABELS[minIdx]} ~ ${AGE_LABELS[maxIdx]}`;
+}
+
+function selectedAgeRange() {
+  const minIdx = clamp(cmpAgeRangeMin, 0, AGE_LABELS.length - 1);
+  const maxIdx = clamp(cmpAgeRangeMax, minIdx, AGE_LABELS.length - 1);
+  return { minIdx, maxIdx };
+}
+
+function selectedAgeLabels() {
+  const { minIdx, maxIdx } = selectedAgeRange();
+  return AGE_LABELS.slice(minIdx, maxIdx + 1);
+}
+
+function ageMapForLabels(ageMap, ageLabels) {
+  const out = {};
+  ageLabels.forEach(label => {
+    out[label] = Number(ageMap?.[label] || 0);
+  });
+  return out;
+}
+
+function trendForAge(item, genderKey, ageLabel) {
+  const byAge = item.trend_by_age || {};
+  const ageGroupMap = byAge[genderKey] || byAge.all || {};
+  const trend = ageGroupMap[ageLabel] || [];
+  return Array.isArray(trend) ? trend : [];
+}
+
+function ageRangeTrendSeries(item, genderKey, ageLabels) {
+  const bucket = new Map();
+  ageLabels.forEach(ageLabel => {
+    trendForAge(item, genderKey, ageLabel).forEach(t => {
+      const period = (t.period || '').slice(0, 7);
+      if (!period) return;
+      const ratio = Number(t.ratio || 0);
+      const prev = bucket.get(period) || { sum: 0, count: 0 };
+      prev.sum += ratio;
+      prev.count += 1;
+      bucket.set(period, prev);
+    });
+  });
+
+  return Array.from(bucket.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([period, stat]) => ({ period, ratio: stat.count ? stat.sum / stat.count : 0 }));
+}
+
+function syncAgeRangeUI() {
+  const { minIdx, maxIdx } = selectedAgeRange();
+  const minInput = document.getElementById('cmp-age-min');
+  const maxInput = document.getElementById('cmp-age-max');
+  if (minInput) minInput.value = String(minIdx);
+  if (maxInput) maxInput.value = String(maxIdx);
+
+  const minLabel = document.getElementById('cmp-age-min-value');
+  const maxLabel = document.getElementById('cmp-age-max-value');
+  const rangeText = document.getElementById('cmp-age-range-text');
+  if (minLabel) minLabel.textContent = AGE_LABELS[minIdx];
+  if (maxLabel) maxLabel.textContent = AGE_LABELS[maxIdx];
+  if (rangeText) rangeText.textContent = ageRangeText(minIdx, maxIdx);
+
+  const sliderWrap = document.getElementById('cmp-age-range-slider');
+  if (sliderWrap) {
+    const denom = Math.max(1, AGE_LABELS.length - 1);
+    sliderWrap.style.setProperty('--from', `${(minIdx / denom) * 100}%`);
+    sliderWrap.style.setProperty('--to', `${(maxIdx / denom) * 100}%`);
+  }
+}
+
+function onAgeRangeInput(bound, value) {
+  const idx = clamp(parseInt(value, 10) || 0, 0, AGE_LABELS.length - 1);
+  if (bound === 'min') {
+    cmpAgeRangeMin = Math.min(idx, cmpAgeRangeMax);
+  } else {
+    cmpAgeRangeMax = Math.max(idx, cmpAgeRangeMin);
+  }
+  syncAgeRangeUI();
+  if (!cmpLastResults || !cmpLastResults.length) return;
+  renderFilteredCompareViews(selectedCompareGender());
+}
+
+function startCompare() {
+  const raw = document.getElementById('cmp-input').value.trim();
+  if (!raw) { alert('키워드를 입력하세요'); return; }
+  const keywords = raw.split(/[,，\\s]+/).map(k => k.trim()).filter(Boolean).slice(0, 5);
+
+  const btn = document.getElementById('cmp-btn');
+  const status = document.getElementById('cmp-status');
+  btn.disabled = true;
+  status.style.color = 'var(--accent)';
+  status.textContent = '📡 네이버 데이터랩 조회 중... (10~20초 소요)';
+  document.getElementById('cmp-trend-section').style.display = 'none';
+  document.getElementById('cmp-metrics').style.display = 'none';
+  document.getElementById('cmp-opportunity').style.display = 'none';
+  document.getElementById('cmp-growth').style.display = 'none';
+  document.getElementById('cmp-positioning').style.display = 'none';
+  document.getElementById('cmp-clusters').style.display = 'none';
+  document.getElementById('cmp-opportunity-tbody').innerHTML = '';
+  document.getElementById('cmp-cluster-list').innerHTML = '';
+  document.querySelector('input[name="cmp-global-gender"][value="all"]').checked = true;
+  cmpAgeRangeMin = 0;
+  cmpAgeRangeMax = AGE_LABELS.length - 1;
+  syncAgeRangeUI();
+  cmpCharts.forEach(c => c.destroy());
+  cmpCharts = [];
+  if (cmpAgeChart) { cmpAgeChart.destroy(); cmpAgeChart = null; }
+  cmpLastResults = [];
+
+  fetch('/compare?keywords=' + encodeURIComponent(keywords.join(',')))
+    .then(r => r.json())
+    .then(data => {
+      btn.disabled = false;
+      if (data.error) {
+        status.style.color = 'var(--red)';
+        status.textContent = '❌ ' + data.error;
+        return;
+      }
+      status.textContent = '';
+      renderCompare(data.results);
+    })
+    .catch(err => {
+      btn.disabled = false;
+      status.style.color = 'var(--red)';
+      status.textContent = '❌ 오류: ' + err.message;
+    });
+}
+
+function renderCompare(results) {
+  if (!results || !results.length) return;
+  cmpLastResults = results;
+
+  // ── 트렌드 라인 차트 ──
+  const trendSection = document.getElementById('cmp-trend-section');
+  trendSection.style.display = 'block';
+  document.getElementById('cmp-metrics').style.display = 'grid';
+  document.getElementById('cmp-opportunity').style.display = 'block';
+  document.getElementById('cmp-growth').style.display = 'block';
+  document.getElementById('cmp-positioning').style.display = 'block';
+  document.getElementById('cmp-clusters').style.display = 'block';
+  renderFilteredCompareViews(selectedCompareGender());
+}
+
+function selectedCompareGender() {
+  const selected = document.querySelector('input[name="cmp-global-gender"]:checked');
+  return selected ? selected.value : 'all';
+}
+
+function onCompareGenderChange() {
+  if (!cmpLastResults || !cmpLastResults.length) return;
+  renderFilteredCompareViews(selectedCompareGender());
+}
+
+function trendForGender(item, genderKey) {
+  const byGender = item.trend_by_gender || {};
+  const trend = byGender[genderKey] || item.trend || [];
+  return Array.isArray(trend) ? trend : [];
+}
+
+function renderTrendChart(results, genderKey) {
+  const ageLabels = selectedAgeLabels();
+  const periodSet = new Set();
+  results.forEach(r => ageRangeTrendSeries(r, genderKey, ageLabels).forEach(t => periodSet.add((t.period || '').slice(0, 7))));
+  const labels = Array.from(periodSet).filter(Boolean).sort();
+
+  cmpCharts.push(new Chart(document.getElementById('chart-trend').getContext('2d'), {
+    type: 'line',
+    data: {
+      labels,
+      datasets: results.map((r, i) => {
+        const map = new Map(ageRangeTrendSeries(r, genderKey, ageLabels).map(t => [(t.period || '').slice(0, 7), Number(t.ratio || 0)]));
+        return {
+          label: r.keyword,
+          data: labels.map(lb => map.has(lb) ? map.get(lb) : null),
+          borderColor: CMP_COLORS[i % CMP_COLORS.length],
+          backgroundColor: CMP_COLORS[i % CMP_COLORS.length] + '22',
+          tension: 0.3,
+          fill: false,
+          pointRadius: 3,
+          spanGaps: true,
+        };
+      })
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#a8b4d8' } } },
+      scales: {
+        x: { ticks: { color: '#64748b', maxRotation: 45 }, grid: { color: '#2d3057' } },
+        y: { ticks: { color: '#64748b' }, grid: { color: '#2d3057' }, min: 0 }
+      }
+    }
+  }));
+}
+
+function renderGenderChart(results) {
+  cmpCharts.push(new Chart(
+    document.getElementById('chart-gender-all').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: results.map(r => r.keyword),
+      datasets: [
+        {
+          label: '남성',
+          data: results.map(r => r.gender.male),
+          backgroundColor: '#4f8ef799',
+          borderColor: '#4f8ef7',
+          borderWidth: 1,
+        },
+        {
+          label: '여성',
+          data: results.map(r => r.gender.female),
+          backgroundColor: '#f472b699',
+          borderColor: '#f472b6',
+          borderWidth: 1,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: { legend: { labels: { color: '#a8b4d8' } } },
+      scales: {
+        x: { ticks: { color: '#a8b4d8' }, grid: { color: '#2d3057' } },
+        y: {
+          ticks: { color: '#64748b', callback: v => v + '%' },
+          grid: { color: '#2d3057' },
+          min: 0,
+          max: 100,
+        }
+      }
+    }
+  }));
+}
+
+function renderFilteredCompareViews(genderKey) {
+  cmpCharts.forEach(c => c.destroy());
+  cmpCharts = [];
+  if (cmpAgeChart) { cmpAgeChart.destroy(); cmpAgeChart = null; }
+
+  renderTrendChart(cmpLastResults, genderKey);
+  renderGenderChart(cmpLastResults);
+  renderAgeCompareChart(cmpLastResults, genderKey);
+  renderOpportunityTable(cmpLastResults, genderKey, selectedAgeLabels());
+  renderGrowthRateChart(cmpLastResults, genderKey, selectedAgeLabels());
+  renderPositioningMap(cmpLastResults, genderKey, selectedAgeLabels());
+  renderContentClusters(cmpLastResults, genderKey, selectedAgeLabels());
+}
+
+function clamp(v, min, max) {
+  return Math.max(min, Math.min(max, v));
+}
+
+function oppScoreClass(score) {
+  if (score >= 70) return 'opp-score-high';
+  if (score >= 50) return 'opp-score-mid';
+  return 'opp-score-low';
+}
+
+function oppTier(score) {
+  if (score >= 70) return { label: '지금 공략', cls: 'high' };
+  if (score >= 50) return { label: '테스트 권장', cls: 'mid' };
+  return { label: '관찰 유지', cls: 'low' };
+}
+
+function calcOpportunityMetrics(item, genderKey = 'all', ageLabels = selectedAgeLabels()) {
+  const trend = ageRangeTrendSeries(item, genderKey, ageLabels);
+  const ratios = trend.map(t => Number(t.ratio || 0));
+
+  const last = ratios.length ? ratios[ratios.length - 1] : 0;
+  const prev = ratios.slice(Math.max(0, ratios.length - 4), Math.max(0, ratios.length - 1));
+  const prevAvg = prev.length ? prev.reduce((a, b) => a + b, 0) / prev.length : 0;
+
+  const growthRaw = prevAvg > 0 ? ((last - prevAvg) / prevAvg) * 100 : (last > 0 ? 100 : 0);
+  const growthScore = clamp(((clamp(growthRaw, -100, 200) + 100) / 300) * 100, 0, 100);
+
+  const levelAvg = ratios.length ? ratios.reduce((a, b) => a + b, 0) / ratios.length : 0;
+  const levelScore = clamp(levelAvg, 0, 100);
+
+  const g = item.gender || {};
+  const d = item.device || {};
+  const agesByGender = item.ages_by_gender || {};
+  const ages = ageMapForLabels(agesByGender[genderKey] || item.ages || {}, ageLabels);
+  const genderBalance = genderKey === 'all' ? (100 - Math.abs((g.male || 0) - (g.female || 0))) : 100;
+  const deviceBalance = 100 - Math.abs((d.mobile || 0) - (d.pc || 0));
+  const maxAgeShare = Math.max(...Object.values(ages).map(v => Number(v || 0)), 0);
+  const ageDiversity = 100 - maxAgeShare;
+  const audienceBreadth = clamp(0.4 * genderBalance + 0.3 * deviceBalance + 0.3 * ageDiversity, 0, 100);
+
+  const opportunityScore = clamp(0.45 * growthScore + 0.35 * levelScore + 0.2 * audienceBreadth, 0, 100);
+
+  return {
+    growth: Math.round(growthScore),
+    level: Math.round(levelScore),
+    audience: Math.round(audienceBreadth),
+    total: Math.round(opportunityScore),
+  };
+}
+
+function renderOpportunityTable(results, genderKey = 'all', ageLabels = selectedAgeLabels()) {
+  const tbody = document.getElementById('cmp-opportunity-tbody');
+  const ranked = results.map(r => ({
+    keyword: r.keyword,
+    ...calcOpportunityMetrics(r, genderKey, ageLabels),
+  })).sort((a, b) => b.total - a.total);
+
+  tbody.innerHTML = ranked.map((r, idx) => {
+    const tier = oppTier(r.total);
+    return `
+      <tr>
+        <td>${idx + 1}</td>
+        <td>${r.keyword}</td>
+        <td class="${oppScoreClass(r.total)}">${r.total}</td>
+        <td>${r.growth}</td>
+        <td>${r.level}</td>
+        <td>${r.audience}</td>
+        <td><span class="opp-chip ${tier.cls}">${tier.label}</span></td>
+      </tr>
+    `;
+  }).join('');
+}
+
+function pctChange(current, past) {
+  if (past > 0) return ((current - past) / past) * 100;
+  if (current > 0) return 100;
+  return 0;
+}
+
+function cappedPct(v) {
+  return clamp(v, -100, 300);
+}
+
+function growthForMonths(ratios, monthsBack) {
+  if (!ratios || ratios.length <= monthsBack) return 0;
+  const current = Number(ratios[ratios.length - 1] || 0);
+  const past = Number(ratios[ratios.length - 1 - monthsBack] || 0);
+  return Math.round(cappedPct(pctChange(current, past)));
+}
+
+function renderGrowthRateChart(results, genderKey = 'all', ageLabels = selectedAgeLabels()) {
+  const keywordLabels = results.map(r => r.keyword);
+  const growth1 = results.map(r => growthForMonths(ageRangeTrendSeries(r, genderKey, ageLabels).map(t => Number(t.ratio || 0)), 1));
+  const growth3 = results.map(r => growthForMonths(ageRangeTrendSeries(r, genderKey, ageLabels).map(t => Number(t.ratio || 0)), 3));
+  const growth6 = results.map(r => growthForMonths(ageRangeTrendSeries(r, genderKey, ageLabels).map(t => Number(t.ratio || 0)), 6));
+
+  cmpCharts.push(new Chart(
+    document.getElementById('chart-growth-rates').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: keywordLabels,
+      datasets: [
+        {
+          label: '1개월',
+          data: growth1,
+          backgroundColor: '#4f8ef799',
+          borderColor: '#4f8ef7',
+          borderWidth: 1,
+        },
+        {
+          label: '3개월',
+          data: growth3,
+          backgroundColor: '#f59e0b99',
+          borderColor: '#f59e0b',
+          borderWidth: 1,
+        },
+        {
+          label: '6개월',
+          data: growth6,
+          backgroundColor: '#22c55e99',
+          borderColor: '#22c55e',
+          borderWidth: 1,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: '#a8b4d8' } },
+        tooltip: {
+          callbacks: {
+            label: ctx => `${ctx.dataset.label}: ${ctx.parsed.y}%`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#a8b4d8' }, grid: { color: '#2d3057' } },
+        y: {
+          ticks: { color: '#64748b', callback: v => v + '%' },
+          grid: { color: '#2d3057' },
+          min: -100,
+          max: 300,
+        }
+      }
+    }
+  }));
+}
+
+function renderPositioningMap(results, genderKey = 'all', ageLabels = selectedAgeLabels()) {
+  const datasets = results.map((r, i) => {
+    const metrics = calcOpportunityMetrics(r, genderKey, ageLabels);
+    const trendRatios = ageRangeTrendSeries(r, genderKey, ageLabels).map(t => Number(t.ratio || 0));
+    const interest = trendRatios.length ? trendRatios.reduce((a, b) => a + b, 0) / trendRatios.length : 0;
+    const competition = clamp(0.65 * metrics.level + 0.35 * (100 - metrics.audience), 0, 100);
+    const radius = 6 + (metrics.total / 100) * 12;
+
+    return {
+      label: r.keyword,
+      data: [{
+        x: Number(interest.toFixed(1)),
+        y: Number(competition.toFixed(1)),
+        r: Number(radius.toFixed(1)),
+      }],
+      backgroundColor: CMP_COLORS[i % CMP_COLORS.length] + '88',
+      borderColor: CMP_COLORS[i % CMP_COLORS.length],
+      borderWidth: 1.5,
+    };
+  });
+
+  cmpCharts.push(new Chart(
+    document.getElementById('chart-positioning').getContext('2d'), {
+    type: 'bubble',
+    data: { datasets },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: '#a8b4d8' } },
+        tooltip: {
+          callbacks: {
+            title: items => items?.[0]?.dataset?.label || '',
+            label: ctx => {
+              const p = ctx.raw || {};
+              return `관심도 ${p.x} / 경쟁강도 ${p.y}`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: {
+          min: 0,
+          max: 100,
+          title: { display: true, text: '관심도 (평균 상대검색량)', color: '#94a3b8' },
+          ticks: { color: '#64748b' },
+          grid: { color: '#2d3057' },
+        },
+        y: {
+          min: 0,
+          max: 100,
+          title: { display: true, text: '경쟁강도 추정', color: '#94a3b8' },
+          ticks: { color: '#64748b' },
+          grid: { color: '#2d3057' },
+        }
+      }
+    }
+  }));
+}
+
+function primaryAgeLabel(item, genderKey = 'all', ageLabels = selectedAgeLabels()) {
+  const byGender = item.ages_by_gender || {};
+  const ages = ageMapForLabels(byGender[genderKey] || item.ages || {}, ageLabels);
+  const entries = Object.entries(ages);
+  if (!entries.length) return '20대';
+  entries.sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0));
+  return entries[0][0] || '20대';
+}
+
+function contentTagSet(item, genderKey = 'all', ageLabels = selectedAgeLabels()) {
+  const trendRatios = ageRangeTrendSeries(item, genderKey, ageLabels).map(t => Number(t.ratio || 0));
+  const growth3m = growthForMonths(trendRatios, 3);
+  const levelAvg = trendRatios.length ? trendRatios.reduce((a, b) => a + b, 0) / trendRatios.length : 0;
+
+  const gender = item.gender || {};
+  const device = item.device || {};
+  const male = Number(gender.male || 0);
+  const female = Number(gender.female || 0);
+  const mobile = Number(device.mobile || 0);
+  const pc = Number(device.pc || 0);
+  const ageTop = primaryAgeLabel(item, genderKey, ageLabels);
+
+  const momentumTag = growth3m >= 20 ? '급상승형' : growth3m <= -10 ? '하락주의형' : '안정축적형';
+  const scaleTag = levelAvg >= 45 ? '대중형' : levelAvg <= 12 ? '니치형' : '중간확장형';
+
+  let personaTag = '균형타겟형';
+  if (['10대', '20대'].includes(ageTop)) personaTag = '젊은층형';
+  if (['40대', '50대', '60대+'].includes(ageTop)) personaTag = '중장년층형';
+  if (female - male >= 15) personaTag = '여성집중형';
+  if (male - female >= 15) personaTag = '남성집중형';
+
+  let channelTag = '멀티채널형';
+  if (mobile - pc >= 20) channelTag = '숏폼모바일형';
+  if (pc - mobile >= 20) channelTag = '검색블로그형';
+
+  return {
+    clusterKey: `${momentumTag} · ${personaTag}`,
+    momentumTag,
+    scaleTag,
+    personaTag,
+    channelTag,
+  };
+}
+
+function clusterStrategyText(tag) {
+  const base = `${tag.momentumTag} + ${tag.personaTag}`;
+  if (tag.channelTag === '숏폼모바일형') {
+    return `${base}군: 릴스/숏츠 중심으로 짧은 전후비교, 체험컷, 질문형 훅 콘텐츠를 우선 제작`;
+  }
+  if (tag.channelTag === '검색블로그형') {
+    return `${base}군: 블로그/검색형 가이드로 원인-해결-비교 구조의 롱폼 콘텐츠를 우선 제작`;
+  }
+  return `${base}군: 숏폼 유입 + 블로그 상세 설명을 함께 운영하는 멀티채널 구성이 효율적`;
+}
+
+function renderContentClusters(results, genderKey = 'all', ageLabels = selectedAgeLabels()) {
+  const listEl = document.getElementById('cmp-cluster-list');
+  const groups = new Map();
+
+  results.forEach(item => {
+    const tags = contentTagSet(item, genderKey, ageLabels);
+    if (!groups.has(tags.clusterKey)) {
+      groups.set(tags.clusterKey, {
+        key: tags.clusterKey,
+        keywords: [],
+        strategy: clusterStrategyText(tags),
+      });
+    }
+    groups.get(tags.clusterKey).keywords.push(item.keyword);
+  });
+
+  const clusters = Array.from(groups.values()).sort((a, b) => b.keywords.length - a.keywords.length);
+  listEl.innerHTML = clusters.map(cluster => `
+    <div class="cmp-cluster-item">
+      <div class="cmp-cluster-title">${cluster.key}</div>
+      <div class="cmp-cluster-kws">
+        ${cluster.keywords.map(k => `<span class="cmp-kw-chip">${k}</span>`).join('')}
+      </div>
+      <div class="cmp-cluster-strategy">${cluster.strategy}</div>
+    </div>
+  `).join('');
+}
+
+function renderAgeCompareChart(results, genderKey) {
+  const ageLabels = AGE_LABELS;
+  const ageSourceKey = (genderKey === 'male' || genderKey === 'female') ? genderKey : 'all';
+
+  if (cmpAgeChart) {
+    cmpAgeChart.destroy();
+    cmpAgeChart = null;
+  }
+
+  cmpAgeChart = new Chart(
+    document.getElementById('chart-age-all').getContext('2d'), {
+    type: 'bar',
+    data: {
+      labels: ageLabels,
+      datasets: results.map((r, i) => ({
+        label: r.keyword,
+        data: ageLabels.map(a => {
+          const byGender = r.ages_by_gender || {};
+          const ageMap = byGender[ageSourceKey] || r.ages || {};
+          return ageMap[a] || 0;
+        }),
+        backgroundColor: CMP_COLORS[i % CMP_COLORS.length] + '99',
+        borderColor: CMP_COLORS[i % CMP_COLORS.length],
+        borderWidth: 1,
+      }))
+    },
+    options: {
+      responsive: true,
+      plugins: {
+        legend: { labels: { color: '#a8b4d8' } },
+        tooltip: {
+          callbacks: {
+            title: items => {
+              const ageLabel = items?.[0]?.label || '';
+              const labelMap = { all: '전체', male: '남성', female: '여성' };
+              return `${ageLabel} (${labelMap[ageSourceKey]})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: '#a8b4d8' }, grid: { color: '#2d3057' } },
+        y: {
+          ticks: { color: '#64748b', callback: v => v + '%' },
+          grid: { color: '#2d3057' },
+          min: 0,
+        }
+      }
+    }
+  });
 }
 </script>
 </body>
